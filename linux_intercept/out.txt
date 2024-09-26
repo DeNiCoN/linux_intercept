@@ -1,0 +1,199 @@
+hello
+0.31396007537841797
+Task finished!
+Elapsed time: 0.31396007537841797
+Starting busy waiting
+Finished
+hello
+0.4718306064605713
+Task finished!
+Elapsed time: 0.4718306064605713
+Starting busy waiting
+Finished
+hello
+0.2897181510925293
+Task finished!
+Elapsed time: 0.2897181510925293
+Starting busy waiting
+Finished
+hello
+0.4926116466522217
+Task finished!
+Elapsed time: 0.4926116466522217
+Starting busy waiting
+Finished
+hello
+0.3868412971496582
+Task finished!
+Elapsed time: 0.3868412971496582
+Starting busy waiting
+Finished
+hello
+0.27567124366760254
+Task finished!
+Elapsed time: 0.27567124366760254
+Starting busy waiting
+Finished
+hello
+0.3094048500061035
+Task finished!
+Elapsed time: 0.3094048500061035
+Starting busy waiting
+Finished
+hello
+0.19704508781433105
+Task finished!
+Elapsed time: 0.19704508781433105
+Starting busy waiting
+Finished
+hello
+0.34621214866638184
+Task finished!
+Elapsed time: 0.34621214866638184
+Starting busy waiting
+Finished
+hello
+0.35765647888183594
+Task finished!
+Elapsed time: 0.35765647888183594
+Starting busy waiting
+Finished
+hello
+0.5515327453613281
+Task finished!
+Elapsed time: 0.5515327453613281
+Starting busy waiting
+Finished
+hello
+0.274416446685791
+Task finished!
+Elapsed time: 0.274416446685791
+Starting busy waiting
+Finished
+hello
+0.32552242279052734
+Task finished!
+Elapsed time: 0.32552242279052734
+Starting busy waiting
+Finished
+hello
+0.30983662605285645
+Task finished!
+Elapsed time: 0.30983662605285645
+Starting busy waiting
+Finished
+hello
+0.3146047592163086
+Task finished!
+Elapsed time: 0.3146047592163086
+Starting busy waiting
+Finished
+hello
+0.40233826637268066
+Task finished!
+Elapsed time: 0.40233826637268066
+Starting busy waiting
+Finished
+hello
+0.7154574394226074
+Task finished!
+Elapsed time: 0.7154574394226074
+Starting busy waiting
+Finished
+hello
+1.2518622875213623
+Task finished!
+Elapsed time: 1.2518622875213623
+Starting busy waiting
+Finished
+hello
+0.3445734977722168
+Task finished!
+Elapsed time: 0.3445734977722168
+Starting busy waiting
+Finished
+hello
+0.4345581531524658
+Task finished!
+Elapsed time: 0.4345581531524658
+Starting busy waiting
+Finished
+hello
+0.2753114700317383
+Task finished!
+Elapsed time: 0.2753114700317383
+Starting busy waiting
+Finished
+hello
+0.22774124145507812
+Task finished!
+Elapsed time: 0.22774124145507812
+Starting busy waiting
+Finished
+hello
+0.5698776245117188
+Task finished!
+Elapsed time: 0.5698776245117188
+Starting busy waiting
+Finished
+hello
+0.4517831802368164
+Task finished!
+Elapsed time: 0.4517831802368164
+Starting busy waiting
+Finished
+hello
+0.3016853332519531
+Task finished!
+Elapsed time: 0.3016853332519531
+Starting busy waiting
+Finished
+hello
+0.282733678817749
+Task finished!
+Elapsed time: 0.282733678817749
+Starting busy waiting
+Finished
+hello
+0.38872241973876953
+Task finished!
+Elapsed time: 0.38872241973876953
+Starting busy waiting
+Finished
+hello
+0.4232909679412842
+Task finished!
+Elapsed time: 0.4232909679412842
+Starting busy waiting
+Finished
+hello
+0.39254236221313477
+Task finished!
+Elapsed time: 0.39254236221313477
+Starting busy waiting
+Finished
+hello
+0.332700252532959
+Task finished!
+Elapsed time: 0.332700252532959
+Starting busy waiting
+Finished
+hello
+0.48672986030578613
+Task finished!
+Elapsed time: 0.48672986030578613
+Starting busy waiting
+Finished
+hello
+0.5035746097564697
+Task finished!
+Elapsed time: 0.5035746097564697
+Starting busy waiting
+Finished
+hello
+0.49973201751708984
+Task finished!
+Elapsed time: 0.49973201751708984
+Starting busy waiting
+Finished
+Finished
