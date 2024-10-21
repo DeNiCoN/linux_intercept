@@ -29,11 +29,12 @@ const sys_panic = @import("utils.zig").sys_panic;
 
 pub const Shmem = struct {
     name: [:0]const u8,
-    mem: *anyopaque,
+    mem: []u8,
     header: *c.intercept_header,
+    allocator: std.heap.FixedBufferAllocator,
 
     pub fn init(comptime name: [:0]const u8) !Shmem {
-        const fd: c_int = c.shm_open(name, c.O_RDWR | c.O_CREAT | c.O_EXCL, 777);
+        const fd: c_int = c.shm_open(name, c.O_RDWR | c.O_CREAT | c.O_EXCL, 0o777);
         if (fd == -1) {
             _ = c.shm_unlink(name);
             sys_panic("Failed to open shared memory:", .{});
@@ -55,7 +56,18 @@ pub const Shmem = struct {
             sys_panic("Failed to mmap shared memory:", .{});
         }
 
-        return .{ .name = name, .mem = intercept_shared_mem.?, .header = @ptrCast(@alignCast(intercept_shared_mem.?)) };
+        const mem: []u8 = @as([*]u8, @ptrCast(intercept_shared_mem.?))[0..@bitCast(page_size)];
+        const header: *c.intercept_header = @ptrCast(@alignCast(mem));
+        header.child_memory_position = null;
+
+        const alloc_buffer = mem[@sizeOf(c.intercept_header)..];
+
+        return .{
+            .name = name,
+            .mem = mem,
+            .header = header,
+            .allocator = std.heap.FixedBufferAllocator.init(alloc_buffer),
+        };
     }
 
     pub fn deinit(self: Shmem) void {
@@ -64,9 +76,21 @@ pub const Shmem = struct {
         }
 
         const page_size: c_int = c.getpagesize();
-        if (c.munmap(self.mem, @intCast(page_size)) == -1) {
+        if (c.munmap(@ptrCast(self.mem), @intCast(page_size)) == -1) {
             sys_panic("Failed munmap:", .{});
         }
+    }
+
+    pub fn alloc(self: *Shmem, comptime T: type, n: usize) ![]T {
+        return self.allocator.allocator().alloc(T, n);
+    }
+
+    pub fn as_tracee_address(self: *Shmem, address: *anyopaque) c_ulonglong {
+        if (self.header.child_memory_position == null) {
+            std.debug.panic("Initial trace have not changed shared memory", .{});
+        }
+
+        return @intFromPtr(self.header.child_memory_position.?) + (@intFromPtr(address) - @intFromPtr(self.mem.ptr));
     }
 };
 
@@ -77,27 +101,27 @@ pub const Ptrace = struct {
     initial_pid: ?c_long = null,
 
     stub_exe: [:0]u8,
-    stub_argv: [*:null]?[*:0]u8,
+    stub_argv: [:null]?[*:0]u8,
 
     pub fn init(allocator: std.mem.Allocator) !Ptrace {
         const tracee_states = std.AutoHashMap(c_int, Tracee).init(allocator);
 
         var shared_memory = try Shmem.init("/linux_intercept");
-        const stub_exe = "/home/denicon/projects/MagDiploma/linux_intercept/zig-out/bin/process_stub";
+        const stub_exe = "/home/denicon/projects/Study/MagDiploma/linux_intercept/zig-out/bin/process_stub";
 
-        const stub_exe_mem = shared_memory.alloc(u8, stub_exe.len + 1);
-        @memcpy(stub_exe_mem, stub_exe);
+        const stub_exe_mem = try shared_memory.alloc(u8, stub_exe.len + 1);
+        @memcpy(stub_exe_mem, stub_exe[0 .. stub_exe.len + 1]);
 
-        const stub_argv_mem = shared_memory.alloc([*]?[*:0]u8, 2);
-        stub_argv_mem[0] = &stub_exe_mem;
+        const stub_argv_mem = try shared_memory.alloc(?[*:0]u8, 2);
+        stub_argv_mem[0] = @ptrCast(stub_exe_mem.ptr);
         stub_argv_mem[1] = null;
 
         return .{
             .tracees = tracee_states,
             .allocator = allocator,
             .shared_memory = shared_memory,
-            .stub_exe = stub_exe_mem,
-            .stub_argv = stub_argv_mem,
+            .stub_exe = stub_exe_mem[0..stub_exe.len :0],
+            .stub_argv = stub_argv_mem[0 .. stub_argv_mem.len - 1 :null],
         };
     }
 
@@ -132,6 +156,9 @@ pub const Ptrace = struct {
                 }
 
                 log.debug("Executing {s}", .{file});
+                if (c.putenv(@constCast("LD_PRELOAD=/home/denicon/projects/Study/MagDiploma/linux_intercept/zig-out/lib/libpreload.so")) == -1) {
+                    sys_panic("Put env", .{});
+                }
 
                 if (c.execvp(file, argv) == -1) {
                     sys_panic("Exec failed", .{});
@@ -299,12 +326,12 @@ pub const Ptrace = struct {
 
     pub fn stub_exe_remote_address(self: *Ptrace, tracee: *Tracee) c_ulonglong {
         _ = tracee;
-        return self.shared_memory.as_tracee_address(self.stub_exe);
+        return self.shared_memory.as_tracee_address(self.stub_exe.ptr);
     }
 
     pub fn stub_argv_remote_address(self: *Ptrace, tracee: *Tracee) c_ulonglong {
-        _ = tracee;
-        return self.shared_memory.as_tracee_address(self.stub_argv);
+        self.stub_argv[0] = @ptrFromInt(self.stub_exe_remote_address(tracee));
+        return self.shared_memory.as_tracee_address(@ptrCast(self.stub_argv.ptr));
     }
 
     pub fn stub_envp_remote_address(self: *Ptrace, tracee: *Tracee) c_ulonglong {
@@ -331,7 +358,7 @@ pub const ProcessManager = struct {
     pub fn should_local(self: ProcessManager, tracee: *const Tracee) bool {
         _ = self;
         _ = tracee;
-        return true;
+        return false;
     }
 
     pub fn allow_local(self: *ProcessManager, tracee: *Tracee) !void {
@@ -341,10 +368,12 @@ pub const ProcessManager = struct {
     }
 
     pub fn allow_remote(self: ProcessManager, tracee: *Tracee, args: ExecveArgs) !void {
-        tracee.replace_execve_to_stub();
+        try tracee.replace_execve_to_stub();
         tracee.detach();
 
-        self.send_to_remote(tracee, args);
+        _ = self;
+        _ = args;
+        //self.send_to_remote(tracee, args);
     }
 
     pub fn finished(self: *ProcessManager, tracee: *const Tracee) !void {

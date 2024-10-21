@@ -1,3 +1,4 @@
+#include "preload.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -11,14 +12,14 @@ int created = 0;
 int page_size = 0;
 
 void __attribute__((constructor)) init() {
-  puts("I need to run before main() !");
+  puts("I need to run before main()!");
 
   page_size = getpagesize();
 
   int fd = shm_open("/linux_intercept", O_RDWR, 0777);
   if (fd == -1) {
-      fprintf(stderr, "Failed to open shared memory: %s\n", strerror(errno));
-      return;
+    fprintf(stderr, "Failed to open shared memory: %s\n", strerror(errno));
+    return;
   }
 
   intercept_shared_mem =
@@ -27,6 +28,11 @@ void __attribute__((constructor)) init() {
   if (intercept_shared_mem == MAP_FAILED) {
     fprintf(stderr, "Failed mmap shared memory: %s\n", strerror(errno));
   }
+
+  intercept_header *header = intercept_shared_mem;
+  header->child_memory_position = intercept_shared_mem;
+  fprintf(stderr, "Changing child_memory_position to %p\n",
+          intercept_shared_mem);
 }
 
 void __attribute__((destructor)) deinit() {

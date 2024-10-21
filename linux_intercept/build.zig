@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
-    const preload = b.addSharedLibrary(.{ .name = "preload", .target = b.host, .link_libc = true, .optimize = optimize });
+    const preload = b.addSharedLibrary(.{ .name = "preload", .target = b.host, .link_libc = true, .optimize = optimize, });
     preload.addCSourceFiles(.{ .files = &.{"preload.c"} });
 
     b.installArtifact(preload);
@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the application");
     run_step.dependOn(&run_exe.step);
     run_step.dependOn(&preload.step);
+    run_step.dependOn(&process_stub.step);
 
     if (b.args) |args| {
         run_exe.addArgs(args);

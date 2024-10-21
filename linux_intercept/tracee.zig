@@ -65,13 +65,23 @@ pub const Tracee = struct {
     stop_reason: StopReason,
     ptrace: *Ptrace,
 
-    pub fn replace_execve_to_stub(self: *Tracee) void {
+    pub fn replace_execve_to_stub(self: *Tracee) !void {
         self.regs.rdi = self.ptrace.stub_exe_remote_address(self);
         self.regs.rsi = self.ptrace.stub_argv_remote_address(self);
         self.regs.rdx = self.ptrace.stub_envp_remote_address(self);
         if (c.ptrace(c.PTRACE_SETREGS, self.pid, @as(c_int, 0), &self.regs) == -1) {
             sys_panic("failed to set regs for [{}]", .{self.pid});
         }
+
+        var buf: [512]u8 = undefined;
+        var allocator = std.heap.FixedBufferAllocator.init(&buf);
+
+        log.info("Exe: {s}", .{self.read_string(self.regs.rdi, allocator.allocator()) catch ""});
+
+        const argv = try read_string_array(self.*, self.regs.rsi, allocator.allocator());
+        log.info("Argv: {s}", .{argv});
+
+        log.info("Envp: {}", .{self.regs.rdx});
     }
 
     pub fn get_execve_args(self: Tracee, allocator: std.mem.Allocator) !ExecveArgs {
