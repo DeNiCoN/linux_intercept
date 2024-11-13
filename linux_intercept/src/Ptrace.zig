@@ -396,6 +396,15 @@ pub fn next(self: *Ptrace) !?*Tracee {
 
                     tracee.stop_reason = .ExecveEnter;
                     return tracee;
+                } else if (syscall == c.SYS_openat) {
+                    tracee.stop_reason = .OpenAt;
+                    return tracee;
+                } else if (syscall == c.SYS_access) {
+                    tracee.stop_reason = .Access;
+                    return tracee;
+                } else if (syscall == c.SYS_newfstatat) {
+                    tracee.stop_reason = .Newfstatat;
+                    return tracee;
                 } else {
                     log.debug("[{}] {s}({}, {}, {}, {}, {}, {})", .{ pid, syscall_name, tracee.regs.rdi, tracee.regs.rsi, tracee.regs.rdx, tracee.regs.r10, tracee.regs.r8, tracee.regs.r9 });
                 }

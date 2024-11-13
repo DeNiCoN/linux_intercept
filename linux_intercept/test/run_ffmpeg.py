@@ -6,9 +6,10 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
+input_dir = "test/send_output"
+output_dir = "test/processed_videos"
 
 def resize_video(input_file):
-    output_dir = "test/processed_videos_small"
     shutil.rmtree(output_dir, True)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -44,7 +45,7 @@ def resize_video(input_file):
 
 def main():
     # Define input video directory
-    input_dir = "test/input_videos_small"
+    shutil.rmtree(output_dir, True)
 
     # Gather all video files
     video_files = [

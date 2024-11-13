@@ -60,6 +60,37 @@ pub fn build(b: *std.Build) !void {
     const run_executor_step = b.step("run_executor", "Run the executor");
     run_executor_step.dependOn(&run_executor.step);
 
+    const send = b.addExecutable(.{
+        .name = "send",
+        .root_source_file = b.path("src/bin/send.zig"),
+        .target = b.host,
+        .link_libc = true,
+    });
+    send.root_module.addImport("src", src_module);
+
+    const run_send = b.addRunArtifact(send);
+    if (b.args) |args| {
+        run_send.addArgs(args);
+    }
+
+    const run_send_step = b.step("run_send", "Run the send");
+    run_send_step.dependOn(&run_send.step);
+
+    const receive = b.addExecutable(.{
+        .name = "receive",
+        .root_source_file = b.path("src/bin/receive.zig"),
+        .target = b.host,
+        .link_libc = true,
+    });
+    receive.root_module.addImport("src", src_module);
+
+    const run_receive = b.addRunArtifact(receive);
+    if (b.args) |args| {
+        run_receive.addArgs(args);
+    }
+
+    const run_receive_step = b.step("run_receive", "Run the receive");
+    run_receive_step.dependOn(&run_receive.step);
     // const preload_path = try std.fmt.allocPrint(b.allocator, "{s}/lib/{s}", .{ b.install_prefix, preload.out_filename });
     // //defer b.allocator.free(preload_path);
     // run_exe.setEnvironmentVariable("LD_PRELOAD", preload_path);

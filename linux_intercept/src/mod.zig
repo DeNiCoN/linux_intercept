@@ -5,5 +5,6 @@ pub const utils = @import("utils.zig");
 pub const systable = @import("systable.zig");
 pub const net = @import("net.zig");
 pub const FileCacheClient = @import("FileCacheClient.zig");
-
-//TODO Split by multiple files
+pub const RPCClient = @import("RPCClient.zig");
+pub const RPCServer = @import("RPCServer.zig");
+pub const Config = @import("Config.zig");

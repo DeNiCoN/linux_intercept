@@ -2,6 +2,7 @@ const std = @import("std");
 const log = std.log;
 const net = std.net;
 const Tracee = @import("Tracee.zig");
+const Config = @import("Config.zig");
 
 local: std.AutoHashMap(c_long, bool),
 allocator: std.mem.Allocator,
@@ -50,11 +51,8 @@ pub fn is_executing(self: *ProcessManager, tracee: *const Tracee) bool {
 }
 
 pub fn send_to_remote(self: *ProcessManager, tracee: *const Tracee, args: Tracee.ExecveArgs) !void {
-    const loopback = try net.Ip4Address.parse("127.0.0.1", 23423);
-    const localhost = net.Address{ .in = loopback };
-
-    std.log.debug("Connecting to {}", .{loopback.getPort()});
-    const stream = try net.tcpConnectToAddress(localhost);
+    std.log.debug("Connecting to {}", .{Config.executor_address.getPort()});
+    const stream = try net.tcpConnectToAddress(Config.executor_address);
     std.log.info("Connected", .{});
     defer stream.close();
 

@@ -95,6 +95,9 @@ pub fn main() !u8 {
             .None => {
                 std.debug.panic("None stop_reason", .{});
             },
+            else => {
+                tracee.cont();
+            },
         }
     }
     return 0;

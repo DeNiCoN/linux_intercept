@@ -19,7 +19,9 @@ pub fn main() !u8 {
     var allocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = allocator.deinit();
 
-    var file_cache = src.FileCacheClient.init();
+    //TODO Seems like file cache should be connected when executables start coming
+    //Or file cache exists as separate process from initiator
+    var file_cache = src.FileCacheClient.init(allocator.allocator(), "/tmp/.cache/linux_intercept", src.Config.remote_cache_address);
 
     const loopback = try net.Ip4Address.parse("127.0.0.1", 23423);
     const localhost = net.Address{ .in = loopback };
@@ -38,7 +40,8 @@ pub fn main() !u8 {
         defer parsed.deinit();
         std.log.info("exe: {s} argv: {s} envp: {s}", .{ parsed.value.exe, parsed.value.argv, parsed.value.envp });
 
-        const exe = file_cache.file(parsed.value.exe);
+        const exe = try file_cache.file(allocator.allocator(), parsed.value.exe);
+        defer allocator.allocator().free(exe);
 
         const argv_rep = try repack_double_array(allocator.allocator(), parsed.value.argv);
         defer allocator.allocator().free(argv_rep);
@@ -61,7 +64,36 @@ pub fn main() !u8 {
         var ptrace = try src.Ptrace.init(allocator.allocator());
         try ptrace.start(exe, argv_rep, envp_rep);
 
+        var toFree = std.ArrayList([]const u8).init(allocator.allocator());
+        defer {
+            for (toFree.items) |slice| {
+                allocator.allocator().free(slice);
+            }
+
+            toFree.deinit();
+        }
+
         while (try ptrace.next()) |tracee| {
+            switch (tracee.stop_reason) {
+                .OpenAt => {
+                    if (tracee.status == .ExitSyscall) {
+                        tracee.cont();
+                        continue;
+                    }
+                    const path = try tracee.read_first_arg(allocator.allocator());
+                    defer allocator.allocator().free(path);
+
+                    const new_file = try file_cache.file(allocator.allocator(), path);
+                    defer allocator.allocator().free(new_file);
+
+                    tracee.set_first_arg(new_file);
+                    tracee.setregs();
+                    //tracee.cont();
+                },
+                else => {
+                    tracee.cont();
+                },
+            }
             trace_log.debug("Stop reason: {}, Status: {}", .{ tracee.stop_reason, tracee.status });
             tracee.cont();
         }

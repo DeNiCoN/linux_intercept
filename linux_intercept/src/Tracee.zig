@@ -23,7 +23,7 @@ const c = @cImport({
 const Ptrace = @import("Ptrace.zig");
 
 pub const Status = enum { EnterSyscall, ExitSyscall, LocalExecution };
-pub const StopReason = enum { None, ExecveEnter, Exit };
+pub const StopReason = enum { None, ExecveEnter, Exit, OpenAt, Stat, Access, Newfstatat };
 
 pub const ExecveArgs = struct {
     exe: [:0]const u8,
@@ -242,4 +242,13 @@ pub fn free_string_array(allocator: std.mem.Allocator, strings: [][*:0]const u8)
     //     allocator.free(strings[i].?);
     // }
     // allocator.free(strings);
+}
+
+pub fn read_first_arg(self: Tracee, allocator: std.mem.Allocator) ![]const u8 {
+    return try self.read_string(self.regs.rdi, allocator);
+}
+
+pub fn set_first_arg(self: Tracee, string: []const u8) ![]const u8 {
+    const copied_string = try self.ptrace.shared_memory.allocator().dupeZ(u8, string);
+    self.regs.rdi =  self.ptrace.shared_memory.as_tracee_address(self, copied_string.ptr);
 }
