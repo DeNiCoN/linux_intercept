@@ -4,6 +4,7 @@ const tracee_memory_log = std.log.scoped(.tracee_memory);
 const os = std.os;
 const systable = @import("systable.zig");
 const sys_panic = @import("utils.zig").sys_panic;
+const builtin = @import("builtin");
 
 const c = @cImport({
     @cInclude("errno.h");
@@ -21,9 +22,10 @@ const c = @cImport({
 });
 
 const Ptrace = @import("Ptrace.zig");
+const Config = @import("Config.zig");
 
 pub const Status = enum { EnterSyscall, ExitSyscall, LocalExecution };
-pub const StopReason = enum { None, ExecveEnter, Exit, OpenAt, Stat, Access, Newfstatat };
+pub const StopReason = enum { None, ExecveEnter, Exit, OpenAt, Access, Newfstatat };
 
 pub const ExecveArgs = struct {
     exe: [:0]const u8,
@@ -54,7 +56,7 @@ pub const ExecveArgs = struct {
     }
 
     pub fn should_be_executed(self: ExecveArgs) bool {
-        return std.mem.endsWith(u8, self.exe, "ffmpeg");
+        return std.mem.endsWith(u8, self.exe, Config.executable);
     }
 };
 
@@ -234,21 +236,81 @@ pub fn read_string_array(tracee: Tracee, address: c_ulonglong, allocator: std.me
 }
 
 pub fn free_string_array(allocator: std.mem.Allocator, strings: [][*:0]const u8) void {
-    _ = allocator;
-    _ = strings;
-
-    // var i: usize = 0;
-    // while (strings[i] != null) : (i += 1) {
-    //     allocator.free(strings[i].?);
-    // }
-    // allocator.free(strings);
+    for (strings) |str| {
+        allocator.free(std.mem.span(str));
+    }
+    allocator.free(strings);
 }
 
-pub fn read_first_arg(self: Tracee, allocator: std.mem.Allocator) ![]const u8 {
+pub fn arg_first(self: *Tracee) *c_ulonglong {
+    return &self.regs.rdi;
+}
+
+pub fn arg_second(self: *Tracee) *c_ulonglong {
+    return &self.regs.rsi;
+}
+
+pub fn arg_third(self: *Tracee) *c_ulonglong {
+    return &self.regs.rdx;
+}
+
+pub fn arg_fourth(self: *Tracee) *c_ulonglong {
+    return &self.regs.r10;
+}
+
+pub fn arg_fifth(self: *Tracee) *c_ulonglong {
+    return &self.regs.r8;
+}
+
+pub fn arg_sixth(self: *Tracee) *c_ulonglong {
+    return &self.regs.r9;
+}
+
+pub fn read_first_arg(self: Tracee, allocator: std.mem.Allocator) ![:0]const u8 {
     return try self.read_string(self.regs.rdi, allocator);
 }
 
-pub fn set_first_arg(self: Tracee, string: []const u8) ![]const u8 {
-    const copied_string = try self.ptrace.shared_memory.allocator().dupeZ(u8, string);
-    self.regs.rdi =  self.ptrace.shared_memory.as_tracee_address(self, copied_string.ptr);
+pub fn set_first_arg(self: *Tracee, string: []const u8) !void {
+    self.regs.rdi = try self.copy_to_stack(string);
+    // const copied_string = try self.ptrace.shared_memory.allocator().dupeZ(u8, string);
+    // self.regs.rdi = self.ptrace.shared_memory.as_tracee_address(self.*, copied_string.ptr);
+}
+
+pub fn read_second_arg(self: Tracee, allocator: std.mem.Allocator) ![:0]const u8 {
+    return try self.read_string(self.regs.rsi, allocator);
+}
+
+pub fn set_second_arg(self: *Tracee, string: []const u8) !void {
+    self.regs.rsi = try self.copy_to_stack(string);
+    //log.info("set_second_arg check: {s}", .{reread});
+    // const copied_string = try self.ptrace.shared_memory.allocator().dupeZ(u8, string);
+    // self.regs.rsi = self.ptrace.shared_memory.as_tracee_address(self.*, copied_string.ptr);
+}
+
+pub fn copy_to_stack(self: Tracee, string: []const u8) !c_ulonglong {
+    var stack_addr = self.regs.rsp - (128 + std.c.PATH_MAX);
+    const file_addr = stack_addr;
+
+    //const native_endian = builtin.cpu.arch.endian();
+
+    var i: usize = 0;
+    var val: c_long = 0;
+    while (i <= string.len) {
+        val = 0;
+        for (0..@sizeOf(c_long)) |j| {
+            if (i + j >= string.len) {
+                val |= @as(c_long, @intCast(0)) << (@as(u6, @intCast(j)) * 8);
+                break;
+            }
+
+            val |= @as(c_long, @intCast(string[i + j])) << (@as(u6, @intCast(j)) * 8);
+        }
+        if (c.ptrace(c.PTRACE_POKETEXT, self.pid, stack_addr, val) == -1) {
+            sys_panic("Failed to copy string to stack for [{}]", .{self.pid});
+        }
+
+        i += @sizeOf(c_long);
+        stack_addr += @sizeOf(c_long);
+    }
+    return file_addr;
 }

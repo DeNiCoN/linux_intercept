@@ -21,7 +21,7 @@ char *sem_name = 0;
 char *shmem_name = 0;
 
 void __attribute__((constructor)) init() {
-  // puts("I need to run before main()!");
+  fprintf(stderr, "I need to run before main()!\n");
 
   sem_name = getenv("LINUX_INTERCEPT_SEM_NAME");
   if (!sem_name) {

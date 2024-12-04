@@ -20,6 +20,7 @@ const c = @cImport({
 const Tracee = @import("Tracee.zig");
 const systable = @import("systable.zig");
 const sys_panic = @import("utils.zig").sys_panic;
+const Config = @import("Config.zig");
 
 pub const GPShmem = struct {
     shared_memory: Shmem,
@@ -68,7 +69,7 @@ pub const GPShmem = struct {
 
         return self.header.entries[tracee.mem_id].address + (@intFromPtr(address) - @intFromPtr(self.shared_memory.mem.ptr));
     }
-    pub fn allocator(self: *const Shmem) std.mem.Allocator {
+    pub fn allocator(self: *GPShmem) std.mem.Allocator {
         return self.buffer_allocator.allocator();
     }
 };
@@ -143,6 +144,7 @@ pub fn init(allocator: std.mem.Allocator) !Ptrace {
     const rand = prng.random();
 
     const uid = rand.int(u64);
+    log.info("Shmem uid: {}", .{uid});
     const shmem_name = try std.fmt.allocPrintZ(allocator, "linux_intercept_{}", .{uid});
     const sem_name = try std.fmt.allocPrintZ(allocator, "linux_intercept_sem_{}", .{uid});
 
@@ -181,6 +183,20 @@ pub fn is_initial(self: *Ptrace, tracee: Tracee) bool {
     return self.initial_pid != null and self.initial_pid == tracee.pid;
 }
 
+pub fn setenv(allocator: std.mem.Allocator, env_list: *std.ArrayList(?[*:0]const u8), key: []const u8, value: []const u8) ![:0]const u8 {
+    const env = try std.fmt.allocPrintZ(allocator, "{s}={s}", .{ key, value });
+    for (env_list.items, 0..) |env_val, i| {
+        if (std.mem.startsWith(u8, std.mem.span(env_val.?), key)) {
+            env_list.items[i] = env.ptr;
+            break;
+        }
+    } else {
+        env_list.appendAssumeCapacity(env.ptr);
+    }
+
+    return env;
+}
+
 pub fn start(self: *Ptrace, file: [*:0]const u8, argv: [:null]?[*:0]const u8, envp: [:null]?[*:0]const u8) !void {
     const initial_pid = c.fork();
     if (initial_pid == -1) {
@@ -190,15 +206,14 @@ pub fn start(self: *Ptrace, file: [*:0]const u8, argv: [:null]?[*:0]const u8, en
     var env_list = try std.ArrayList(?[*:0]const u8).initCapacity(self.allocator, envp.len + 3);
     env_list.appendSliceAssumeCapacity(envp);
 
-    const shmem_env = try std.fmt.allocPrintZ(self.allocator, "LINUX_INTERCEPT_SHMEM_NAME={s}", .{self.shmem_name});
+    const shmem_env = try setenv(self.allocator, &env_list, "LINUX_INTERCEPT_SHMEM_NAME", self.shmem_name);
     defer self.allocator.free(shmem_env);
-    env_list.appendAssumeCapacity(shmem_env.ptr);
 
-    const sem_env = try std.fmt.allocPrintZ(self.allocator, "LINUX_INTERCEPT_SEM_NAME={s}", .{self.sem_name});
+    const sem_env = try setenv(self.allocator, &env_list, "LINUX_INTERCEPT_SEM_NAME", self.sem_name);
     defer self.allocator.free(sem_env);
-    env_list.appendAssumeCapacity(sem_env.ptr);
 
-    env_list.appendAssumeCapacity("LD_PRELOAD=/home/denicon/projects/Study/MagDiploma/linux_intercept/zig-out/lib/libpreload.so");
+    const ld_preload_env = try setenv(self.allocator, &env_list, "LD_PRELOAD", Config.preload_path);
+    defer self.allocator.free(ld_preload_env);
 
     const modified_env = try env_list.toOwnedSliceSentinel(null);
     defer self.allocator.free(modified_env);
@@ -397,12 +412,15 @@ pub fn next(self: *Ptrace) !?*Tracee {
                     tracee.stop_reason = .ExecveEnter;
                     return tracee;
                 } else if (syscall == c.SYS_openat) {
+                    log.debug("[{}] {s}({}, {}, {}, {}, {}, {})", .{ pid, syscall_name, tracee.regs.rdi, tracee.regs.rsi, tracee.regs.rdx, tracee.regs.r10, tracee.regs.r8, tracee.regs.r9 });
                     tracee.stop_reason = .OpenAt;
                     return tracee;
                 } else if (syscall == c.SYS_access) {
+                    log.debug("[{}] {s}({}, {}, {}, {}, {}, {})", .{ pid, syscall_name, tracee.regs.rdi, tracee.regs.rsi, tracee.regs.rdx, tracee.regs.r10, tracee.regs.r8, tracee.regs.r9 });
                     tracee.stop_reason = .Access;
                     return tracee;
                 } else if (syscall == c.SYS_newfstatat) {
+                    log.debug("[{}] {s}({}, {}, {}, {}, {}, {})", .{ pid, syscall_name, tracee.regs.rdi, tracee.regs.rsi, tracee.regs.rdx, tracee.regs.r10, tracee.regs.r8, tracee.regs.r9 });
                     tracee.stop_reason = .Newfstatat;
                     return tracee;
                 } else {
@@ -454,3 +472,25 @@ pub fn will_succeed(self: *Ptrace, args: Tracee.ExecveArgs) bool {
     std.fs.accessAbsoluteZ(args.exe, .{ .mode = .read_only }) catch return false;
     return true;
 }
+
+pub const FDTable = struct {
+    // table: std.AutoHashMap(c_ulonglong, []const u8),
+
+    // pub fn init(allocator: std.mem.Allocator) FDTable {
+    //     return .{ .table = std.AutoHashMap(c_ulonglong, []const u8).init(allocator) };
+    // }
+
+    // pub fn deinit(self: *FDTable) void {
+    //     var iterator = self.table.iterator();
+    //     while (iterator.next()) |entry| {
+    //         self.table.allocator.free(entry.value_ptr.*);
+    //     }
+    //     self.table.deinit();
+    // }
+
+    // pub fn register(self: FDTable, fd: c_ulonglong, name: []const u8) !void {
+    //     const duped_value = try std.table.allocator.dupe(name);
+    //     errdefer std.table.allocator.free(duped_value);
+    //     try self.table.put(fd, duped_value);
+    // }
+};

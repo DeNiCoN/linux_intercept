@@ -16,9 +16,9 @@ next_id: usize,
 allocator: std.mem.Allocator,
 
 pub fn init(allocator: std.mem.Allocator, address: std.net.Address) !RPCClient {
-    std.log.debug("Connecting to {}", .{address.getPort()});
+    log.debug("Connecting to {}", .{address});
     const stream = try std.net.tcpConnectToAddress(address);
-    std.log.info("Connected", .{});
+    log.info("Connected", .{});
 
     return .{
         .stream = stream,

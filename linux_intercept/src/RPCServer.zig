@@ -10,10 +10,8 @@ server: std.net.Server,
 allocator: std.mem.Allocator,
 next_id: usize,
 
-pub fn init(allocator: std.mem.Allocator, port: u16) !RPCServer {
-    const loopback = try std.net.Ip4Address.parse("127.0.0.1", port);
-    const localhost = std.net.Address{ .in = loopback };
-    const server = try localhost.listen(.{ .reuse_port = true });
+pub fn init(allocator: std.mem.Allocator, listen_address: std.net.Address) !RPCServer {
+    const server = try listen_address.listen(.{ .reuse_port = true });
 
     return .{
         .server = server,
@@ -32,6 +30,22 @@ const JSONRPCRequest = struct {
     params: std.json.Value,
     id: usize,
 };
+
+pub fn run_consecutive(self: *RPCServer) !void {
+    while (true) {
+        self.run_single_impl() catch |err| switch (err) {
+            error.UnexpectedEndOfInput => {
+                log.debug("UnexpectedEndOfInput", .{});
+                continue;
+            },
+            error.EndOfStream => {
+                log.debug("EndOfStream", .{});
+                continue;
+            },
+            else => return err,
+        };
+    }
+}
 
 pub fn run_single(self: *RPCServer) !void {
     self.run_single_impl() catch |err| switch (err) {
@@ -66,8 +80,10 @@ pub fn run_single_impl(self: *RPCServer) !void {
 
             const response = try self.fetchFile(params.value.name);
             try self.send_response(connection.stream.writer(), response);
-            const file = try std.fs.openFileAbsolute(params.value.name, .{});
-            try FileCacheClient.streamWriteFile(connection.stream.writer(), file);
+            if (response.status == .FileIncoming) {
+                const file = try std.fs.openFileAbsolute(params.value.name, .{});
+                try FileCacheClient.streamWriteFile(connection.stream.writer(), file);
+            }
             log.debug("fetchFile finished", .{});
         } else if (std.mem.eql(u8, parsed.value.method, "sendFile")) {
             log.debug("sendFile", .{});
@@ -105,8 +121,29 @@ pub fn sendFile(self: *RPCServer, name: []const u8) !net.SendFileResponse {
 
 pub fn fetchFile(self: *RPCServer, name: []const u8) !net.FetchFileResponse {
     _ = self;
-    const file = try std.fs.openFileAbsolute(name, .{});
+    const file = std.fs.openFileAbsolute(name, .{}) catch |err| switch (err) {
+        error.FileNotFound => {
+            log.debug("NoFile {s}", .{name});
+            return .{
+                .status = .NoFile,
+                .mode = 0,
+            };
+        },
+        else => {
+            return err;
+        },
+    };
 
+    const stat = try file.stat();
+    if (stat.kind == .directory) {
+            log.debug("IsDir {s}", .{name});
+            return .{
+                .status = .IsDir,
+                .mode = 0,
+            };
+    }
+
+    log.debug("FileIncoming {s}", .{name});
     return .{
         .status = .FileIncoming,
         .mode = (try file.stat()).mode,

@@ -15,6 +15,7 @@ pub const FetchFileResponse = struct {
     status: enum {
         FileIncoming,
         NoFile,
+        IsDir,
     },
 
     mode: std.fs.File.Mode,

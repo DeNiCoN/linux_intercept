@@ -91,6 +91,22 @@ pub fn build(b: *std.Build) !void {
 
     const run_receive_step = b.step("run_receive", "Run the receive");
     run_receive_step.dependOn(&run_receive.step);
+
+    const file_cache = b.addExecutable(.{
+        .name = "file_cache",
+        .root_source_file = b.path("src/bin/file_cache.zig"),
+        .target = b.host,
+        .link_libc = true,
+    });
+    file_cache.root_module.addImport("src", src_module);
+
+    const run_file_cache = b.addRunArtifact(file_cache);
+    if (b.args) |args| {
+        run_file_cache.addArgs(args);
+    }
+
+    const run_file_cache_step = b.step("run_file_cache", "Run the file_cache");
+    run_file_cache_step.dependOn(&run_file_cache.step);
     // const preload_path = try std.fmt.allocPrint(b.allocator, "{s}/lib/{s}", .{ b.install_prefix, preload.out_filename });
     // //defer b.allocator.free(preload_path);
     // run_exe.setEnvironmentVariable("LD_PRELOAD", preload_path);

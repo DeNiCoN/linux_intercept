@@ -56,6 +56,7 @@ pub fn send_to_remote(self: *ProcessManager, tracee: *const Tracee, args: Tracee
     std.log.info("Connected", .{});
     defer stream.close();
 
+    //FIXME: This is cwd of parent process, not childs
     const cwd = try std.fs.cwd().realpathAlloc(self.allocator, ".");
     defer self.allocator.free(cwd);
     _ = tracee;

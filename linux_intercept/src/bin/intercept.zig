@@ -6,10 +6,11 @@ const os = std.os;
 const assert = std.debug.assert;
 
 pub const std_options: std.Options = .{
-    .log_level = .debug,
+    .log_level = .info,
 
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .tracee_memory, .level = .info },
+        .{ .scope = .rpc_server, .level = .debug },
     },
 };
 
@@ -38,18 +39,10 @@ pub fn print_help(writer: anytype) !void {
     try std.fmt.format(writer, "Usage: linux_intercept <exe> [args]...\n", .{});
 }
 
-pub fn main() !u8 {
-    log.debug("Command args: {s}", .{os.argv});
-    if (os.argv.len < 2) {
-        try print_help(std.io.getStdErr().writer());
-        return 1;
-    } else if (std.mem.eql(u8, std.mem.span(os.argv[1]), "--help")) {
-        try print_help(std.io.getStdOut().writer());
-        return 0;
-    }
-
-    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = arena_allocator.allocator();
+pub fn run_ptrace_interceptor() !void {
+    var gp_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gp_allocator.deinit();
+    var allocator = gp_allocator.allocator();
 
     var ptrace = try Ptrace.init(allocator);
     defer ptrace.deinit();
@@ -100,5 +93,41 @@ pub fn main() !u8 {
             },
         }
     }
+}
+
+pub fn run_file_cache_server() !void {
+    var allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = allocator.deinit();
+
+    var server = try src.FileCacheServer.init(allocator.allocator(), src.Config.remote_cache_address);
+    defer server.deinit();
+    try server.run();
+}
+
+pub fn main() !u8 {
+    log.debug("Command args: {s}", .{os.argv});
+    if (os.argv.len < 2) {
+        try print_help(std.io.getStdErr().writer());
+        return 1;
+    } else if (std.mem.eql(u8, std.mem.span(os.argv[1]), "--help")) {
+        try print_help(std.io.getStdOut().writer());
+        return 0;
+    }
+
+    var allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = allocator.deinit();
+    {
+        var env_map = try src.Dotenv.load_env_map(allocator.allocator());
+        defer env_map.deinit();
+        try src.Config.read_from_env_map(env_map);
+    }
+
+    //const file_cache_main_thread = try std.Thread.spawn(.{}, run_file_cache_server, .{});
+    // const ptrace_main_thread = try std.Thread.spawn(.{}, run_ptrace_interceptor, .{});
+
+    // ptrace_main_thread.join();
+    //file_cache_main_thread.detach();
+
+    try run_ptrace_interceptor();
     return 0;
 }
