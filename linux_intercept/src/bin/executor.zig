@@ -20,14 +20,16 @@ pub const std_options: std.Options = .{
 pub fn main() !u8 {
     var allocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = allocator.deinit();
+    {
+        var env_map = try src.Dotenv.load_env_map(allocator.allocator());
+        defer env_map.deinit();
+        try src.Config.read_from_env_map(env_map);
+    }
 
     var ignored_names = std.StringHashMap(bool).init(allocator.allocator());
     try ignored_names.put("/sys/devices/system/cpu/possible", true);
 
-    const loopback = try net.Ip4Address.parse("127.0.0.1", 23423);
-    const localhost = net.Address{ .in = loopback };
-
-    var server = try localhost.listen(.{ .reuse_port = true });
+    var server = try src.Config.executor_address.listen(.{ .reuse_port = true });
 
     std.log.info("Listening on {}", .{server.listen_address.getPort()});
     while (true) {
