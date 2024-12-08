@@ -63,7 +63,8 @@ pub const GPShmem = struct {
         }
 
         //log.debug("Tracee address for mem_id", args: anytype)
-        if ((@intFromPtr(address) - @intFromPtr(self.shared_memory.mem.ptr)) >= self.shared_memory.mem.len) {
+        const offset: i128 = (@intFromPtr(address) - @intFromPtr(self.shared_memory.mem.ptr));
+        if (offset >= self.shared_memory.mem.len or offset < 0) {
             std.debug.panic("Address out of shared memory bounds", .{});
         }
 
@@ -121,14 +122,53 @@ pub const Shmem = struct {
     }
 };
 
-tracees: std.AutoHashMap(c_int, Tracee),
+pub fn NonInvalidatableHashMap(K: type, V: type) type {
+    return struct {
+        const Node = std.DoublyLinkedList(V).Node;
+
+        pool: std.heap.MemoryPool(Node),
+        list: std.DoublyLinkedList(V),
+        map: std.AutoHashMap(K, *Node),
+
+        const Self = @This();
+
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{
+                .pool = std.heap.MemoryPool(Node).init(allocator),
+                .list = std.DoublyLinkedList(V){},
+                .map = std.AutoHashMap(K, *Node).init(allocator),
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.map.deinit();
+            self.pool.deinit();
+        }
+
+        pub fn put(self: *Self, key: K, value: V) std.mem.Allocator.Error!void {
+            const node = try self.pool.create();
+            node.data = value;
+            try self.map.put(key, node);
+        }
+
+        pub fn count(self: Self) usize {
+            return self.map.count();
+        }
+
+        pub fn getPtr(self: Self, key: K) ?*V {
+            const node = self.map.get(key) orelse {
+                return null;
+            };
+            return &node.data;
+        }
+    };
+}
+
+tracees: NonInvalidatableHashMap(c_int, Tracee),
 unknown: std.AutoHashMap(c_int, c_int),
 allocator: std.mem.Allocator,
 shared_memory: GPShmem,
 initial_pid: ?c_long = null,
-
-stub_exe: [:0]u8,
-stub_argv: [:null]?[*:0]u8,
 
 shmem_name: [:0]u8,
 sem_name: [:0]u8,
@@ -136,8 +176,6 @@ sem_name: [:0]u8,
 const Ptrace = @This();
 
 pub fn init(allocator: std.mem.Allocator) !Ptrace {
-    const tracee_states = std.AutoHashMap(c_int, Tracee).init(allocator);
-
     var seed: u64 = undefined;
     try std.posix.getrandom(std.mem.asBytes(&seed));
     var prng = std.Random.DefaultPrng.init(seed);
@@ -148,23 +186,13 @@ pub fn init(allocator: std.mem.Allocator) !Ptrace {
     const shmem_name = try std.fmt.allocPrintZ(allocator, "linux_intercept_{}", .{uid});
     const sem_name = try std.fmt.allocPrintZ(allocator, "linux_intercept_sem_{}", .{uid});
 
-    var shared_memory = try GPShmem.init(shmem_name);
-    const stub_exe = "/home/denicon/projects/Study/MagDiploma/linux_intercept/zig-out/bin/process_stub";
-
-    const stub_exe_mem = try shared_memory.alloc(u8, stub_exe.len + 1);
-    @memcpy(stub_exe_mem, stub_exe[0 .. stub_exe.len + 1]);
-
-    const stub_argv_mem = try shared_memory.alloc(?[*:0]u8, 2);
-    stub_argv_mem[0] = @ptrCast(stub_exe_mem.ptr);
-    stub_argv_mem[1] = null;
+    const shared_memory = try GPShmem.init(shmem_name);
 
     return .{
-        .tracees = tracee_states,
+        .tracees = NonInvalidatableHashMap(c_int, Tracee).init(allocator),
         .unknown = std.AutoHashMap(c_int, c_int).init(allocator),
         .allocator = allocator,
         .shared_memory = shared_memory,
-        .stub_exe = stub_exe_mem[0..stub_exe.len :0],
-        .stub_argv = stub_argv_mem[0 .. stub_argv_mem.len - 1 :null],
         .shmem_name = shmem_name,
         .sem_name = sem_name,
     };
@@ -198,11 +226,6 @@ pub fn setenv(allocator: std.mem.Allocator, env_list: *std.ArrayList(?[*:0]const
 }
 
 pub fn start(self: *Ptrace, file: [*:0]const u8, argv: [:null]?[*:0]const u8, envp: [:null]?[*:0]const u8) !void {
-    const initial_pid = c.fork();
-    if (initial_pid == -1) {
-        sys_panic("fork failed", .{});
-    }
-
     var env_list = try std.ArrayList(?[*:0]const u8).initCapacity(self.allocator, envp.len + 3);
     env_list.appendSliceAssumeCapacity(envp);
 
@@ -218,6 +241,13 @@ pub fn start(self: *Ptrace, file: [*:0]const u8, argv: [:null]?[*:0]const u8, en
     const modified_env = try env_list.toOwnedSliceSentinel(null);
     defer self.allocator.free(modified_env);
 
+    log.debug("starting {s}", .{file});
+    const initial_pid = c.fork();
+    if (initial_pid == -1) {
+        sys_panic("fork failed", .{});
+    }
+
+    //FIXME initial_pid updated from multiple threads
     self.initial_pid = initial_pid;
 
     switch (initial_pid) {
@@ -273,22 +303,16 @@ pub fn start(self: *Ptrace, file: [*:0]const u8, argv: [:null]?[*:0]const u8, en
     }
 }
 
-fn process_new_child(self: *Ptrace, pid: c_int) !void {
-    var tracee = self.tracees.getPtr(pid) orelse {
-        std.debug.panic("No pid in new child {}", .{pid});
-        //try self.unknown.put(pid, 0);
-        return;
-        //std.debug.panic("No pid {}", .{pid});
-    };
-
+fn process_new_child(self: *Ptrace, tracee: *Tracee) !void {
     var new_pid: c_int = undefined;
-    if (c.ptrace(c.PTRACE_GETEVENTMSG, pid, @as(c_int, 0), &new_pid) == -1) {
+    if (c.ptrace(c.PTRACE_GETEVENTMSG, tracee.pid, @as(c_int, 0), &new_pid) == -1) {
         sys_panic("geteventmsg failed", .{});
     }
 
     log.debug("New child: {}. Parent status: {}", .{ new_pid, tracee.status });
 
     if (!self.unknown.contains(new_pid)) {
+        log.debug("unknown", .{});
         if (c.waitpid(new_pid, 0, 0) == -1) {
             sys_panic("wait new child", .{});
         }
@@ -302,10 +326,12 @@ fn process_new_child(self: *Ptrace, pid: c_int) !void {
             sys_panic("trace new child", .{});
         }
     } else {
+        log.debug("next_syscall child", .{});
         if (c.ptrace(c.PTRACE_SYSCALL, new_pid, @as(c_int, 0), c.NULL) == -1) {
             sys_panic("trace new child", .{});
         }
 
+        log.debug("put lock", .{});
         try self.tracees.put(new_pid, Tracee{
             .id = self.tracees.count(),
             .mem_id = tracee.mem_id,
@@ -314,15 +340,25 @@ fn process_new_child(self: *Ptrace, pid: c_int) !void {
             .stop_reason = .None,
             .ptrace = self,
         });
-        tracee = self.tracees.getPtr(pid).?;
     }
     tracee.cont_same();
 }
 
 pub fn next(self: *Ptrace) !?*Tracee {
     while (true) {
+        var waitinfo: std.c.siginfo_t = undefined;
+        if (c.waitid(c.P_ALL, 0, @ptrCast(&waitinfo), c.WEXITED | c.WSTOPPED | c.__WNOTHREAD | c.WNOWAIT) < 0) {
+            if (std.c._errno().* == c.ECHILD) {
+                log.debug("No children", .{});
+                return null;
+            }
+            sys_panic("wait any child", .{});
+        }
+
+        var pid = waitinfo.fields.common.first.piduid.pid;
+
         var status: c_int = undefined;
-        const pid = c.waitpid(-1, &status, 0);
+        pid = c.waitpid(pid, &status, 0);
 
         if (pid == -1) {
             if (std.c._errno().* == c.ECHILD) {
@@ -343,15 +379,15 @@ pub fn next(self: *Ptrace) !?*Tracee {
             // Handle new childs when stopped on clone event
             if (status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_CLONE << 8))) {
                 log.debug("PTRACE_EVENT_CLONE", .{});
-                try self.process_new_child(pid);
+                try self.process_new_child(tracee);
                 continue;
             } else if (status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_FORK << 8))) {
                 log.debug("PTRACE_EVENT_FORK", .{});
-                try self.process_new_child(pid);
+                try self.process_new_child(tracee);
                 continue;
             } else if (status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_VFORK << 8))) {
                 log.debug("PTRACE_EVENT_VFORK", .{});
-                try self.process_new_child(pid);
+                try self.process_new_child(tracee);
                 continue;
             } else if (status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_EXIT << 8))) {
                 log.debug("PTRACE_EVENT_EXIT", .{});
@@ -451,20 +487,6 @@ pub fn next(self: *Ptrace) !?*Tracee {
             },
         }
     }
-}
-
-pub fn stub_exe_remote_address(self: *Ptrace, tracee: *Tracee) c_ulonglong {
-    return self.shared_memory.as_tracee_address(tracee.*, self.stub_exe.ptr);
-}
-
-pub fn stub_argv_remote_address(self: *Ptrace, tracee: *Tracee) c_ulonglong {
-    self.stub_argv[0] = @ptrFromInt(self.stub_exe_remote_address(tracee));
-    return self.shared_memory.as_tracee_address(tracee.*, @ptrCast(self.stub_argv.ptr));
-}
-
-pub fn stub_envp_remote_address(self: *Ptrace, tracee: *Tracee) c_ulonglong {
-    _ = self;
-    return tracee.regs.rdx;
 }
 
 pub fn will_succeed(self: *Ptrace, args: Tracee.ExecveArgs) bool {

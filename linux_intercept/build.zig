@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) !void {
         .name = "process_stub",
         .root_source_file = b.path("src/bin/process_stub.zig"),
         .target = b.host,
+        .optimize = optimize,
     });
     b.installArtifact(process_stub);
 
@@ -29,6 +30,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/bin/intercept.zig"),
         .target = b.host,
         .link_libc = true,
+        .optimize = optimize,
     });
     intercept.root_module.addImport("src", src_module);
 
@@ -49,8 +51,10 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/bin/executor.zig"),
         .target = b.host,
         .link_libc = true,
+        .optimize = optimize,
     });
     executor.root_module.addImport("src", src_module);
+    b.installArtifact(executor);
 
     const run_executor = b.addRunArtifact(executor);
     if (b.args) |args| {
@@ -65,6 +69,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/bin/send.zig"),
         .target = b.host,
         .link_libc = true,
+        .optimize = optimize,
     });
     send.root_module.addImport("src", src_module);
 
@@ -81,6 +86,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/bin/receive.zig"),
         .target = b.host,
         .link_libc = true,
+        .optimize = optimize,
     });
     receive.root_module.addImport("src", src_module);
 
@@ -97,6 +103,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/bin/file_cache.zig"),
         .target = b.host,
         .link_libc = true,
+        .optimize = optimize,
     });
     file_cache.root_module.addImport("src", src_module);
 

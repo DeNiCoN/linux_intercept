@@ -16,6 +16,8 @@ pub var preload_path: []const u8 = "/home/denicon/projects/Study/MagDiploma/linu
 pub var executable: []const u8 = "ffmpeg";
 pub var cache_directory: []const u8 = "/tmp/.cache/linux_intercept";
 
+pub const stub_exe_path = "/home/denicon/projects/Study/MagDiploma/linux_intercept/zig-out/bin/process_stub";
+
 pub fn read_from_env_map(env_map: std.process.EnvMap) !void {
     if (env_map.get("REMOTE_CACHE_PORT")) |port_buf| {
         remote_cache_port = try std.fmt.parseInt(u16, port_buf, 10);

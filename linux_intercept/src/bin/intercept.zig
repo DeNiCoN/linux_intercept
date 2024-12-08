@@ -10,7 +10,7 @@ pub const std_options: std.Options = .{
 
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .tracee_memory, .level = .info },
-        .{ .scope = .rpc_server, .level = .debug },
+        .{ .scope = .rpc_server, .level = .info },
     },
 };
 
@@ -57,6 +57,11 @@ pub fn run_ptrace_interceptor() !void {
     try ptrace.start(file, argv, std.mem.span(std.c.environ));
 
     var process_manager = ProcessManager.init(allocator);
+    defer process_manager.deinit();
+
+    const file_cache_thread = try std.Thread.spawn(.{}, run_file_cache_server, .{});
+
+    try process_manager.connect(src.Config.executor_address);
 
     while (try ptrace.next()) |tracee| {
         switch (tracee.stop_reason) {
@@ -93,6 +98,11 @@ pub fn run_ptrace_interceptor() !void {
             },
         }
     }
+
+    //The program has finished
+    try process_manager.disconnect();
+    //File cache should stop by itself
+    file_cache_thread.join();
 }
 
 pub fn run_file_cache_server() !void {
@@ -121,12 +131,6 @@ pub fn main() !u8 {
         defer env_map.deinit();
         try src.Config.read_from_env_map(env_map);
     }
-
-    //const file_cache_main_thread = try std.Thread.spawn(.{}, run_file_cache_server, .{});
-    // const ptrace_main_thread = try std.Thread.spawn(.{}, run_ptrace_interceptor, .{});
-
-    // ptrace_main_thread.join();
-    //file_cache_main_thread.detach();
 
     try run_ptrace_interceptor();
     return 0;

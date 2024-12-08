@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set the source and target directories
-SOURCE_DIR="/home/denicon/projects/Study/MagDiploma/linux_intercept/test/input_videos"
+SOURCE_DIR="/home/denicon/projects/Study/MagDiploma/linux_intercept/test/input_videos_full"
 TARGET_DIR="/home/denicon/projects/Study/MagDiploma/linux_intercept/test/output_copies"
 
 # Check if the source directory exists

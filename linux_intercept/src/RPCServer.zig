@@ -136,11 +136,11 @@ pub fn fetchFile(self: *RPCServer, name: []const u8) !net.FetchFileResponse {
 
     const stat = try file.stat();
     if (stat.kind == .directory) {
-            log.debug("IsDir {s}", .{name});
-            return .{
-                .status = .IsDir,
-                .mode = 0,
-            };
+        log.debug("IsDir {s}", .{name});
+        return .{
+            .status = .IsDir,
+            .mode = 0,
+        };
     }
 
     log.debug("FileIncoming {s}", .{name});

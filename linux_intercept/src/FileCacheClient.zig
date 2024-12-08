@@ -8,6 +8,9 @@ root_name: []const u8,
 root_dir: std.fs.Dir,
 rpc: RPCClient,
 cached: std.StringHashMap(bool),
+//TODO: Use rwlock
+cached_lock: std.Thread.Mutex,
+allocator: std.mem.Allocator,
 
 pub fn init(allocator: std.mem.Allocator, root: []const u8, address: std.net.Address) !FileCacheClient {
     log.debug("Creating directory at {s}", .{root});
@@ -18,17 +21,19 @@ pub fn init(allocator: std.mem.Allocator, root: []const u8, address: std.net.Add
 
     const cached = std.StringHashMap(bool).init(allocator);
     return .{
+        .allocator = allocator,
         .root_name = root,
         .root_dir = root_dir,
         .rpc = rpc,
         .cached = cached,
+        .cached_lock = .{},
     };
 }
 
 pub fn deinit(self: *FileCacheClient) void {
     var iterator = self.cached.iterator();
     while (iterator.next()) |entry| {
-        self.cached.allocator.free(entry.key_ptr.*);
+        self.allocator.free(entry.key_ptr.*);
     }
 
     self.cached.deinit();
@@ -50,6 +55,14 @@ pub fn file(self: *FileCacheClient, allocator: std.mem.Allocator, name: []const 
     }
     const result_path = try std.fs.path.joinZ(allocator, &[_][]const u8{ self.root_name, name[1..] });
     errdefer allocator.free(result_path);
+
+    log.debug("lock {s}", .{name});
+    self.cached_lock.lock();
+    defer {
+        log.debug("unlock {s}", .{name});
+        self.cached_lock.unlock();
+    }
+
     if (self.is_cached(name)) {
         return result_path;
     } else {
@@ -86,19 +99,21 @@ pub fn file(self: *FileCacheClient, allocator: std.mem.Allocator, name: []const 
             },
         }
 
-        log.info("Value {s}", .{name});
-        try self.cached.put(try self.cached.allocator.dupe(u8, name), true);
+        log.debug("Value {s}", .{name});
+        if (!self.cached.contains(name))
+            try self.cached.put(try self.allocator.dupe(u8, name), true);
     }
 
     return result_path;
 }
 
-pub fn is_cached(self: FileCacheClient, name: []const u8) bool {
+pub fn is_cached(self: *FileCacheClient, name: []const u8) bool {
     return self.cached.contains(name);
 }
 
 pub fn cache_no_file(self: *FileCacheClient, name: []const u8) !void {
-    try self.cached.put(try self.cached.allocator.dupe(u8, name), false);
+    if (!self.is_cached(name))
+        try self.cached.put(try self.allocator.dupe(u8, name), false);
 }
 
 pub fn streamReadFile(buffered_reader: anytype, opened_file: std.fs.File) !void {
@@ -119,13 +134,14 @@ pub fn streamReadFile(buffered_reader: anytype, opened_file: std.fs.File) !void 
 }
 
 pub fn streamWriteFile(buffered_writer: anytype, fileToSend: std.fs.File) !void {
+    log.debug("Stat", .{});
     const contents_size: u64 = (try fileToSend.stat()).size;
-    std.log.debug("Stream write file of size {}", .{contents_size});
+    log.debug("Stream write file of size {}", .{contents_size});
     try buffered_writer.writeInt(u64, contents_size, .little);
 
     const reader = fileToSend.reader();
     var size_left = contents_size;
-    var buf: [16 * 1024 * 1024]u8 = undefined;
+    var buf: [1 * 1024 * 1024]u8 = undefined;
 
     while (size_left != 0) {
         const to_read = @min(size_left, buf.len);
@@ -142,6 +158,9 @@ pub fn streamWriteFile(buffered_writer: anytype, fileToSend: std.fs.File) !void 
 }
 
 pub fn sendFile(self: *FileCacheClient, path: []const u8) !void {
+    self.cached_lock.lock();
+    defer self.cached_lock.unlock();
+
     if (!std.fs.path.isAbsolute(path)) {
         std.debug.panic("Not absolute path in cache: {s}", .{path});
     }
@@ -151,8 +170,8 @@ pub fn sendFile(self: *FileCacheClient, path: []const u8) !void {
     if (resp.value.status != .Ok)
         std.debug.panic("Unexpected response", .{});
 
-    const result_path = try std.fs.path.joinZ(self.cached.allocator, &[_][]const u8{ self.root_name, path[1..] });
-    defer self.cached.allocator.free(result_path);
+    const result_path = try std.fs.path.joinZ(self.allocator, &[_][]const u8{ self.root_name, path[1..] });
+    defer self.allocator.free(result_path);
 
     log.info("Sending {s}", .{result_path});
     const out_file = try std.fs.openFileAbsolute(result_path, .{});

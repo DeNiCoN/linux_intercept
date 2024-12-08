@@ -6,7 +6,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
-input_dir = "test/send_output"
+input_dir = "test/input_videos_full"
 output_dir = "test/processed_videos"
 
 def resize_video(input_file):

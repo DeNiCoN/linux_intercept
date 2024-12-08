@@ -17,5 +17,7 @@ pub fn deinit(self: *FileCacheServer) void {
 }
 
 pub fn run(self: *FileCacheServer) !void {
-    try self.rpc_server.run_consecutive();
+    //FIXME: Ideally we should be able to signal FileCacheServer that it should quit
+    //TODO Try to use poll/epoll with some pipe
+    try self.rpc_server.run_single();
 }

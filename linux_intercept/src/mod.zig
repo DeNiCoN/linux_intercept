@@ -8,5 +8,6 @@ pub const FileCacheClient = @import("FileCacheClient.zig");
 pub const FileCacheServer= @import("FileCacheServer.zig");
 pub const RPCClient = @import("RPCClient.zig");
 pub const RPCServer = @import("RPCServer.zig");
+pub const JSONRPCServer = @import("JSONRPCServer.zig");
 pub const Config = @import("Config.zig");
 pub const Dotenv = @import("Dotenv.zig");

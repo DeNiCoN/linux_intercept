@@ -49,7 +49,7 @@ pub const ExecveArgs = struct {
         };
     }
 
-    pub fn deinit(self: *ExecveArgs) void {
+    pub fn deinit(self: ExecveArgs) void {
         self.allocator.free(self.exe);
         free_string_array(self.allocator, self.argv);
         free_string_array(self.allocator, self.envp);
@@ -57,6 +57,15 @@ pub const ExecveArgs = struct {
 
     pub fn should_be_executed(self: ExecveArgs) bool {
         return std.mem.endsWith(u8, self.exe, Config.executable);
+    }
+
+    pub fn dupe(self: ExecveArgs, allocator: std.mem.Allocator) !ExecveArgs {
+        return .{
+            .allocator = allocator,
+            .exe = try allocator.dupeZ(u8, self.exe),
+            .argv = try dupe_string_array(self.allocator, self.argv),
+            .envp = try dupe_string_array(self.allocator, self.envp),
+        };
     }
 };
 
@@ -75,10 +84,49 @@ pub fn setregs(self: *Tracee) void {
     }
 }
 
-pub fn replace_execve_to_stub(self: *Tracee) !void {
-    self.regs.rdi = self.ptrace.stub_exe_remote_address(self);
-    self.regs.rsi = self.ptrace.stub_argv_remote_address(self);
-    self.regs.rdx = self.ptrace.stub_envp_remote_address(self);
+pub const TraceeMemoryArgv = struct {
+    allocator: std.mem.Allocator,
+    exe: [:0]const u8,
+    argv: [:null]?[*:0]const u8,
+    argv_tracee_space: [:0]const usize,
+
+    pub fn deinit(self: TraceeMemoryArgv) void {
+        const normal: [][*:0]const u8 = @ptrCast(self.argv[0..]);
+        Tracee.free_string_array(self.allocator, normal);
+        self.allocator.free(self.argv_tracee_space);
+    }
+};
+
+pub fn makeExecveArgs(self: *Tracee, exe: []const u8, args: []const []const u8) !TraceeMemoryArgv {
+    const allocator = self.ptrace.shared_memory.allocator();
+    const exe_duped = try allocator.dupeZ(u8, exe);
+
+    var argv_list = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, args.len + 2);
+    argv_list.appendAssumeCapacity(exe_duped.ptr);
+    for (args) |arg| {
+        argv_list.appendAssumeCapacity(try allocator.dupeZ(u8, arg));
+    }
+
+    const argv_tracee_space = try allocator.allocSentinel(usize, argv_list.items.len, 0);
+
+    for (argv_list.items, 0..) |arg, i| {
+        argv_tracee_space[i] = self.ptrace.shared_memory.as_tracee_address(self.*, arg.?);
+    }
+
+    return .{
+        .allocator = allocator,
+        .exe = exe_duped,
+        .argv = try argv_list.toOwnedSliceSentinel(null),
+        .argv_tracee_space = argv_tracee_space,
+    };
+}
+
+pub fn replace_execve_to_stub(self: *Tracee, args: TraceeMemoryArgv) !void {
+    //TODO Explore if we can use /proc/pid/mem to write to memory
+
+    self.regs.rdi = self.ptrace.shared_memory.as_tracee_address(self.*, args.exe.ptr);
+    self.regs.rsi = self.ptrace.shared_memory.as_tracee_address(self.*, @ptrCast(args.argv_tracee_space.ptr));
+    self.regs.rdx = self.regs.rdx;
     self.setregs();
 
     var buf: [512]u8 = undefined;
@@ -240,6 +288,15 @@ pub fn free_string_array(allocator: std.mem.Allocator, strings: [][*:0]const u8)
         allocator.free(std.mem.span(str));
     }
     allocator.free(strings);
+}
+
+pub fn dupe_string_array(allocator: std.mem.Allocator, strings: [][*:0]const u8) ![][*:0]const u8 {
+    const result = try allocator.alloc([*:0]const u8, strings.len);
+
+    for (strings, 0..) |str, i| {
+        result[i] = try allocator.dupeZ(u8, std.mem.span(str));
+    }
+    return result;
 }
 
 pub fn arg_first(self: *Tracee) *c_ulonglong {
