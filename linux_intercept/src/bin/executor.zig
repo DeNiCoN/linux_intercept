@@ -265,7 +265,9 @@ pub fn main() !u8 {
                 src.Config.remote_cache_address,
             );
 
-            const response = net.ConnectResponse{};
+            const response = net.ConnectResponse{
+                .num_cores = try std.Thread.getCpuCount(),
+            };
             try connection.send_response(request.id, response);
         } else if (std.mem.eql(u8, request.value.method, "execute")) {
             const execute_thread = try std.Thread.spawn(.{}, execute_request, .{ allocator, &connection, request, &file_cache.?, &ptrace });

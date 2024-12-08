@@ -56,7 +56,7 @@ pub fn run_ptrace_interceptor() !void {
 
     try ptrace.start(file, argv, std.mem.span(std.c.environ));
 
-    var process_manager = ProcessManager.init(allocator);
+    var process_manager = ProcessManager.init(allocator, try std.Thread.getCpuCount());
     defer process_manager.deinit();
 
     const file_cache_thread = try std.Thread.spawn(.{}, run_file_cache_server, .{});
@@ -92,6 +92,25 @@ pub fn run_ptrace_interceptor() !void {
             },
             .None => {
                 std.debug.panic("None stop_reason", .{});
+            },
+            .OpenAt => {
+                if (tracee.status == .ExitSyscall) {
+                    tracee.cont();
+                    continue;
+                }
+                const path = try tracee.read_second_arg(allocator);
+                defer allocator.free(path);
+                if (std.mem.eql(u8, path, "/sys/devices/system/cpu/possible")) {
+                    log.warn("cpu/possible is Unimplemented", .{});
+                } else if (std.mem.eql(u8, path, "/sys/devices/system/cpu/online")) {
+                    const new_path = try process_manager.process_count_stub_file();
+                    try tracee.set_second_arg(new_path);
+                    tracee.setregs();
+                }
+                tracee.cont();
+            },
+            .SchedGetAffinity => {
+                log.warn("SchedGetAffinity is Unimplemented", .{});
             },
             else => {
                 tracee.cont();

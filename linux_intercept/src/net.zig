@@ -38,7 +38,9 @@ pub const ConnectArgs = struct {
     manager_port: u16,
 };
 
-pub const ConnectResponse = struct {};
+pub const ConnectResponse = struct {
+    num_cores: usize,
+};
 
 pub const DisconnectArgs = struct {};
 

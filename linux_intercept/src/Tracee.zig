@@ -24,8 +24,20 @@ const c = @cImport({
 const Ptrace = @import("Ptrace.zig");
 const Config = @import("Config.zig");
 
-pub const Status = enum { EnterSyscall, ExitSyscall, LocalExecution };
-pub const StopReason = enum { None, ExecveEnter, Exit, OpenAt, Access, Newfstatat };
+pub const Status = enum {
+    EnterSyscall,
+    ExitSyscall,
+    LocalExecution,
+};
+pub const StopReason = enum {
+    None,
+    ExecveEnter,
+    Exit,
+    OpenAt,
+    Access,
+    Newfstatat,
+    SchedGetAffinity,
+};
 
 pub const ExecveArgs = struct {
     exe: [:0]const u8,

@@ -11,8 +11,13 @@ local: std.AutoHashMap(c_long, bool),
 executor_rpc: ?ExecutorRPCClient,
 allocator: std.mem.Allocator,
 
+local_cores: usize,
+net_cores: usize,
+
 waiting_threads: std.AutoHashMap(c_long, std.Thread),
 waiting_threads_mu: std.Thread.Mutex,
+
+stub_count_path: []const u8,
 
 const c = @cImport({
     @cInclude("errno.h");
@@ -33,13 +38,16 @@ const c = @cImport({
 
 const ProcessManager = @This();
 
-pub fn init(allocator: std.mem.Allocator) ProcessManager {
+pub fn init(allocator: std.mem.Allocator, local_cores_num: usize) ProcessManager {
     return .{
         .local = std.AutoHashMap(c_long, bool).init(allocator),
         .allocator = allocator,
         .executor_rpc = null,
         .waiting_threads = std.AutoHashMap(c_long, std.Thread).init(allocator),
         .waiting_threads_mu = .{},
+        .local_cores = local_cores_num,
+        .net_cores = 0,
+        .stub_count_path = "/tmp/linux_intercept_cpu_online",
     };
 }
 
@@ -61,6 +69,8 @@ pub fn connect(self: *ProcessManager, address: std.net.Address) !void {
     self.executor_rpc = try ExecutorRPCClient.init(self.allocator, address);
     const response = try self.executor_rpc.?.connect(Config.remote_cache_port, 0);
     defer response.deinit();
+
+    self.net_cores += response.value.num_cores;
 }
 
 pub fn disconnect(self: *ProcessManager) !void {
@@ -68,10 +78,9 @@ pub fn disconnect(self: *ProcessManager) !void {
     defer response.deinit();
 }
 
-pub fn should_local(self: ProcessManager, tracee: *const Tracee) bool {
-    _ = self;
+pub fn should_local(self: *ProcessManager, tracee: *const Tracee) bool {
     _ = tracee;
-    return false;
+    return self.local.count() < self.local_cores;
 }
 
 pub fn allow_local(self: *ProcessManager, tracee: *Tracee) !void {
@@ -164,4 +173,13 @@ pub fn pack_double_array(allocator: std.mem.Allocator, array: [][*:0]const u8) !
     }
 
     return result;
+}
+
+pub fn process_count_stub_file(self: *ProcessManager) ![]const u8 {
+    const file = try std.fs.createFileAbsolute(self.stub_count_path, .{
+        .mode = 0o666,
+    });
+    defer file.close();
+    try std.fmt.format(file.writer(), "0-{}\n", .{self.local_cores + self.net_cores - 1});
+    return self.stub_count_path;
 }

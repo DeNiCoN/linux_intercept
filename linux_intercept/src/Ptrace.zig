@@ -459,6 +459,10 @@ pub fn next(self: *Ptrace) !?*Tracee {
                     log.debug("[{}] {s}({}, {}, {}, {}, {}, {})", .{ pid, syscall_name, tracee.regs.rdi, tracee.regs.rsi, tracee.regs.rdx, tracee.regs.r10, tracee.regs.r8, tracee.regs.r9 });
                     tracee.stop_reason = .Newfstatat;
                     return tracee;
+                } else if (syscall == c.SYS_sched_getaffinity) {
+                    log.debug("[{}] {s}({}, {}, {}, {}, {}, {})", .{ pid, syscall_name, tracee.regs.rdi, tracee.regs.rsi, tracee.regs.rdx, tracee.regs.r10, tracee.regs.r8, tracee.regs.r9 });
+                    tracee.stop_reason = .SchedGetAffinity;
+                    return tracee;
                 } else {
                     log.debug("[{}] {s}({}, {}, {}, {}, {}, {})", .{ pid, syscall_name, tracee.regs.rdi, tracee.regs.rsi, tracee.regs.rdx, tracee.regs.r10, tracee.regs.r8, tracee.regs.r9 });
                 }
